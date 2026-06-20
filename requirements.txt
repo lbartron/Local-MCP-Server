@@ -1,0 +1,13 @@
+# --- Database & Vectors ---
+sqlite-vec>=0.1.1
+
+# --- Local Embeddings ---
+mcp>=1.0.0
+watchdog>=4.0.0
+
+# --- ML and Search ---
+sentence-transformers>=3.0.0
+scikit-learn>=1.5.0
+
+# --- Dream Pruning ---
+openai>=1.0.0
