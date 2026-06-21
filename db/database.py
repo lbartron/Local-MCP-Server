@@ -22,7 +22,9 @@ def init_tables(connection):
         CREATE TABLE IF NOT EXISTS documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
-            content TEXT NOT NULL
+            content TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            last_modified REAL NOT NULL
         );
     """)
 
@@ -37,12 +39,19 @@ def init_tables(connection):
     """)
     connection.commit()
     
-def insert_document(connection, title: str, content: str, vector: list[float]):
-    """ Insert text into documents table, and its vector into vec_documents"""
+def insert_document(connection, title: str, content: str, file_path: str, last_modified: float, vector: list[float]):
+    """ Insert text into documents table, and its vector into vec_documents. 
+        This should only be called for small files as embedding model can only
+        process small chunks of data at a time. Use insert_document_chunks for 
+        larger file ingestion
+    """
     cursor = connection.cursor()
     
-    # Insert into the standard documents table
-    cursor.execute("INSERT INTO documents (title, content) VALUES (?, ?)", (title, content))
+    # Insert into the documents table
+    cursor.execute("""
+        INSERT INTO documents (title, content, file_path, last_modified) 
+        VALUES (?, ?, ?, ?)
+    """, (title, content, file_path, last_modified))
     doc_id = cursor.lastrowid # Get auto-generated ID for vec_documents
     
     # Serialize the vector and insert into the virtual table with the matching ID
@@ -50,7 +59,45 @@ def insert_document(connection, title: str, content: str, vector: list[float]):
     cursor.execute("INSERT INTO vec_documents (id, embedding) VALUES (?, ?)", (doc_id, serialized_vector))
     
     connection.commit()
-    return doc_id    
+    return doc_id
+
+def insert_document_chunks(connection, title: str, file_path: str, last_modified: float, chunks: list[str], vectors: list[list[float]]):
+    """ Insert an array of text chunks and corresponding vectors 
+        into documents and vec_documents tables 
+    """
+    cursor = connection.cursor()
+
+    for chunk, vector in zip(chunks, vectors):
+        # Insert into the documents table
+        cursor.execute("""
+            INSERT INTO documents (title, content, file_path, last_modified) 
+            VALUES (?, ?, ?, ?)
+        """, (title, chunk, file_path, last_modified))
+        doc_id = cursor.lastrowid # Get auto-generated ID for vec_documents
+        
+        # Serialize the vector and insert into the virtual table with the matching ID
+        serialized_vector = sqlite_vec.serialize_float32(vector)
+        cursor.execute("INSERT INTO vec_documents (id, embedding) VALUES (?, ?)", (doc_id, serialized_vector))
+
+    connection.commit()
+
+def delete_document_by_path(connection, file_path):
+    """ Delete database entries associated with a specific file path """
+    cursor = connection.cursor()
+    
+    # Delete from the virtual vector table
+    # Use subquery to find all chunk IDs associated with this file path
+    cursor.execute("""
+        DELETE FROM vec_documents 
+        WHERE id IN (
+            SELECT id FROM documents WHERE file_path = ?
+        )
+    """, (file_path,))
+    
+    # Delete from the documents table
+    cursor.execute("DELETE FROM documents WHERE file_path = ?", (file_path,))
+    
+    connection.commit()
 
 def search_similar(connection, vector: list[float], limit: int = 5,):
     """ Perform L2 distance query and return matching text chunks """
