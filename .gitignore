@@ -1,2 +1,23 @@
-.continue
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
 .venv
+__pycache__/
+env/
+venv/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.continue
+
+# Extra
+.DS_Store
