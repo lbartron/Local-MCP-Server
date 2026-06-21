@@ -3,7 +3,8 @@ import sqlite_vec
 from core.config import DB_PATH, EMBEDDING_DIMENSIONS
 
 def get_connection():
-    """Create and return an SQLite connection with sqlite-vec loaded."""
+    """ Create and return an SQLite connection with sqlite-vec loaded """
+
     db = sqlite3.connect(DB_PATH)
 
     db.enable_load_extension(True)
@@ -13,7 +14,8 @@ def get_connection():
     return db
 
 def init_tables(connection):
-    """Create the text table and the vec0 virtual table."""
+    """ Create the text table and the vec0 virtual table """
+
     cursor = connection.cursor()
     # Text Table Creation
     cursor.execute("""
@@ -26,6 +28,7 @@ def init_tables(connection):
 
     # Vec0 Virtual Table Creation
     # Update float depending on dimensions of embedding model
+    # Currently all-MiniLM-L6-v2 uses 384 dimensions
     cursor.execute(f"""
         CREATE VIRTUAL TABLE IF NOT EXISTS vec_documents USING vec0(
             id INTEGER PRIMARY KEY,
@@ -34,9 +37,23 @@ def init_tables(connection):
     """)
     connection.commit()
     
+def insert_document(connection, title: str, content: str, vector: list[float]):
+    """ Insert text into documents table, and its vector into vec_documents"""
+    cursor = connection.cursor()
+    
+    # Insert into the standard documents table
+    cursor.execute("INSERT INTO documents (title, content) VALUES (?, ?)", (title, content))
+    doc_id = cursor.lastrowid # Get auto-generated ID for vec_documents
+    
+    # Serialize the vector and insert into the virtual table with the matching ID
+    serialized_vector = sqlite_vec.serialize_float32(vector)
+    cursor.execute("INSERT INTO vec_documents (id, embedding) VALUES (?, ?)", (doc_id, serialized_vector))
+    
+    connection.commit()
+    return doc_id    
 
 def search_similar(connection, vector: list[float], limit: int = 5,):
-    """Perform L2 distance query and return matching text chunks."""
+    """ Perform L2 distance query and return matching text chunks """
     cursor = connection.cursor()
 
     # Convert Python list to serialized format for query
@@ -51,9 +68,8 @@ def search_similar(connection, vector: list[float], limit: int = 5,):
             vec_documents.distance
         FROM vec_documents
         LEFT JOIN documents ON vec_documents.id = documents.id
-        WHERE vec_documents.embedding MATCH ?
+        WHERE vec_documents.embedding MATCH ? AND k = ?
         ORDER BY distance
-        LIMIT ?
     """, (query_vector, limit))
     
     return cursor.fetchall()
